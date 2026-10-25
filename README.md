@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# General Store Management System
 
-## Getting Started
+A responsive Next.js and TypeScript interface for a small family-owned general store in Nepal.
 
-First, run the development server:
+## Current phase
+
+The current implementation is a **frontend demo**. `/login` is a mockup and `/dashboard` is a public UI preview, not an authenticated route. All displayed transaction IDs, names, and amounts come from centralized fictional demo data. The other dashboard routes are labeled placeholders.
+
+Authentication, Google Sheets, Apps Script, eSewa, sales entry, repayments, and report calculations are not connected. The login form never sends the entered credentials or creates a session.
+
+## Run locally
+
+Requires Node.js 20.9 or newer.
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000/login` or `http://localhost:3000/dashboard`. The English/Nepali selector changes the current UI labels and stores the preference in this browser only.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+`.env.example` lists variables reserved for future server-side authentication and Apps Script integration. They are not used by the current frontend demo. Never commit real secrets or expose them through `NEXT_PUBLIC_` variables.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Google Apps Script
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The `apps-script/` directory has a separate deployment lifecycle from Next.js. Follow [the Apps Script workflow](apps-script/README.md) and [setup notes](docs/setup-and-deployment.md) when the backend phase begins. No Apps Script project is connected yet.
