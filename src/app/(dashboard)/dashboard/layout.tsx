@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/app-shell";
+import { requireOwnerSession } from "@/lib/server/auth";
 
-// This route group shares dashboard UI only; it does not authenticate or protect the route.
-export default function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default async function DashboardLayout({ children }: Readonly<{ children: ReactNode }>) {
+  // Enforce server-side session verification in addition to edge middleware
+  await requireOwnerSession();
+
   return <AppShell>{children}</AppShell>;
 }

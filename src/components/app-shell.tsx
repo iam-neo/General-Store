@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { LanguageToggle } from "@/components/language-toggle";
 import { DemoDataNotice } from "@/components/dashboard/demo-data-notice";
@@ -28,6 +28,35 @@ function isCurrentPath(pathname: string, href: string) {
     : pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function SignOutButton() {
+  const { t } = useLocale();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }
+
+  return (
+    <button
+      className="nav-link nav-link-signout w-full border-0 bg-transparent text-left cursor-pointer"
+      onClick={handleSignOut}
+      title={t("signOutNote")}
+      type="button"
+    >
+      <Icon name="logout" size={18} />
+      <span>{t("signOut")}</span>
+    </button>
+  );
+}
+
 function NavigationLinks({ pathname }: Readonly<{ pathname: string }>) {
   const { t } = useLocale();
 
@@ -47,10 +76,7 @@ function NavigationLinks({ pathname }: Readonly<{ pathname: string }>) {
           </Link>
         );
       })}
-      <Link className="nav-link nav-link-signout" href="/login" title={t("signOutNote")}>
-        <Icon name="logout" size={18} />
-        <span>{t("signOutDemo")}</span>
-      </Link>
+      <SignOutButton />
     </>
   );
 }
