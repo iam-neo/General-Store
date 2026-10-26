@@ -81,12 +81,14 @@ Header records for sales receipts and transactions.
 | `subtotal` | Integer (Paisa) | Yes | Gross subtotal in Paisa |
 | `discount_amount` | Integer (Paisa) | Yes | Discount amount in Paisa |
 | `total_amount` | Integer (Paisa) | Yes | Final payable amount in Paisa (`subtotal - discount_amount`) |
-| `status` | String | Yes | Allowed: `"draft"`, `"completed"`, `"cancelled"`, `"refunded"` |
+| `status` | String | Yes | Allowed: `"draft"`, `"completed"`, `"cancelled"`, `"refunded"`, `"pending"`, `"failed"` |
+| `payment_method` | String | Yes | Payment method (strictly `"cash"` in Phase 7) |
+| `idempotency_key` | String | Yes | Client-provided idempotency token preventing duplicate checkouts |
 | `created_at` | DateTime (ISO) | Yes | UTC creation timestamp |
 | `updated_at` | DateTime (ISO) | Yes | UTC last modification timestamp |
 
 ### 2.4 `SaleItems`
-Line items associated with each sale, capturing point-in-time price snapshots.
+Line items associated with each sale, capturing point-in-time product, price, unit, and SKU snapshots.
 
 | Column | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
@@ -94,8 +96,10 @@ Line items associated with each sale, capturing point-in-time price snapshots.
 | `sale_id` | String (UUID) | Yes | Foreign key -> `Sales.sale_id` |
 | `product_id` | String (UUID) | Yes | Foreign key -> `Products.product_id` |
 | `product_name_snapshot` | String | Yes | Product name captured at time of sale |
+| `sku_snapshot` | String | No | Barcode / SKU captured at time of sale |
+| `unit_snapshot` | String | Yes | Unit of measure snapshot at time of sale |
 | `quantity` | Number | Yes | Quantity purchased |
-| `unit_price_snapshot` | Integer (Paisa) | Yes | Unit price at time of sale in Paisa |
+| `unit_price_snapshot` | Integer (Paisa) | Yes | Authoritative catalog unit price at time of sale in Paisa |
 | `line_total` | Integer (Paisa) | Yes | Total in Paisa (`quantity * unit_price_snapshot`) |
 
 ### 2.5 `Payments`

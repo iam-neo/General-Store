@@ -47,7 +47,9 @@ To resume work on this repository without repeating audits:
 - [x] **Compound Sale Storage**: Atomic recording of header in `Sales` sheet and line items in `SaleItems` sheet with historical price snapshots.
 - [x] **Atomic Stock Decrement**: Automatic product stock reduction upon checkout accompanied by audit entries in `InventoryAdjustments`.
 - [x] **Printable Thermal Receipt**: Dual calendar date display (Gregorian ISO UTC and Nepali Bikram Sambat BS), itemized breakdown, and `@media print` thermal styling.
-- [x] **Sale Idempotency**: Stable `idempotency_key` on sale creation preventing duplicate billing and double stock deductions on network retry.
+- [x] **Sale Idempotency & Durability**: Stable `idempotency_key` on sale creation preventing duplicate billing and double stock deductions on network retry, with server-authoritative catalog pricing (client overrides rejected).
+- [x] **Compound Sale & Payment Storage**: Atomic recording of header in `Sales`, line items in `SaleItems` (with point-in-time price, SKU, and unit snapshots), and cash receipt in `Payments` sheet.
+- [x] **POS Register UI & Sales History**: Bilingual tabbed interface (`/dashboard/sales`) with product search/filter, cart editor, checkout confirmation modal, cash-only notice badge, printable thermal receipt, and recent sales ledger inspection.
 - [x] **API Route Security**: Route guards (`verifyApiOwnerSession` & `isSameOriginRequest`) on `/api/products*`, `/api/sales*`, and `/api/system*`.
 - [x] **Financial Precision**: Integer Paisa representation (`100 Paisa = 1 NPR`) across all calculations and bilingual Rupee formatting (`रु` / `Rs.`).
 - [x] **Bilingual Localization**: Seamless English (`en`) and Nepali (`ne`) UI translation dictionary and context provider.
@@ -61,12 +63,12 @@ To resume work on this repository without repeating audits:
 
 ## 4. Latest Verification Command Results
 
-**Execution Date:** 2026-10-26 12:40 NST  
+**Execution Date:** 2026-10-26 13:30 NST  
 **Environment:** Windows (PowerShell), Node.js v20+, Next.js 16.4.3  
 
 | Check | Command | Result | Notes |
 | :--- | :--- | :--- | :--- |
-| **Unit & Integration Tests** | `npm test` | **PASS (95/95)** | 0 failures, 0 skipped, runtime ~2.2s (10 new Phase 7 tests) |
+| **Unit & Integration Tests** | `npm test` | **PASS (98/98)** | 0 failures, 0 skipped, runtime ~2.2s (13 Phase 7 tests covering billing, pricing authority, snapshots, payments) |
 | **TypeScript Typecheck** | `npx tsc --noEmit` | **PASS (0 errors)** | Strict types across Next.js, API routes, and mock client |
 | **ESLint Static Analysis** | `npm run lint` | **PASS (0 warnings)** | Clean code style and React 19 hook hygiene |
 | **Production Build** | `npm run build` | **PASS (0 errors)** | 23/23 static pages & dynamic API routes generated |

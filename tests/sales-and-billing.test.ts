@@ -413,3 +413,123 @@ test("API Protection: rejects cross-origin mutating requests to /api/sales with 
     delete process.env.OWNER_PASSWORD_HASH;
   }
 });
+
+// ─── 5. Server-Authoritative Pricing, Snapshots & Payments ──────────────────
+
+test("Sales Backend: enforces server-authoritative pricing (ignores client price overrides)", async () => {
+  const client = new MockAppsScriptClient();
+
+  const prodRes = await client.createProduct({
+    name: "Premium Basmati Rice",
+    category: "Groceries",
+    unit: "packet",
+    selling_price: 25000, // Catalog price: Rs 250.00
+    opening_quantity: 20,
+    is_active: true,
+  });
+  assert.equal(prodRes.success, true);
+  if (!prodRes.success) return;
+  const prodId = prodRes.data.product_id;
+
+  // Client attempts to pass a malicious unit_price_snapshot override of 5000 (Rs 50.00)
+  const saleRes = await client.createSale({
+    idempotency_key: "sale-key-auth-price-check",
+    items: [
+      {
+        product_id: prodId,
+        quantity: 2,
+        unit_price_snapshot: 5000, // Must be ignored by server
+      },
+    ],
+  });
+
+  assert.equal(saleRes.success, true);
+  if (!saleRes.success) return;
+
+  const { sale, items } = saleRes.data;
+  assert.equal(items.length, 1);
+  // Authoritative catalog price of 25000 Paisa was used, NOT 5000
+  assert.equal(items[0].unit_price_snapshot, 25000);
+  assert.equal(items[0].line_total, 50000); // 2 * 25000
+  assert.equal(sale.subtotal, 50000);
+  assert.equal(sale.total_amount, 50000);
+});
+
+test("Sales Backend: records sku_snapshot, unit_snapshot, and payment record in Payments sheet", async () => {
+  const client = new MockAppsScriptClient();
+
+  const prodRes = await client.createProduct({
+    name: "Aashirvaad Atta 5kg",
+    sku: "8901030383821",
+    category: "Groceries",
+    unit: "packet",
+    selling_price: 46000, // Rs 460.00
+    opening_quantity: 10,
+    is_active: true,
+  });
+  assert.equal(prodRes.success, true);
+  if (!prodRes.success) return;
+  const prodId = prodRes.data.product_id;
+
+  const saleRes = await client.createSale({
+    idempotency_key: "sale-key-snapshots-and-payment",
+    items: [{ product_id: prodId, quantity: 1 }],
+  });
+
+  assert.equal(saleRes.success, true);
+  if (!saleRes.success) return;
+
+  const { sale, items, payment } = saleRes.data;
+
+  // Check snapshots on item
+  assert.equal(items[0].sku_snapshot, "8901030383821");
+  assert.equal(items[0].unit_snapshot, "packet");
+  assert.equal(items[0].product_name_snapshot, "Aashirvaad Atta 5kg");
+
+  // Check sale record
+  assert.equal(sale.payment_method, "cash");
+  assert.equal(sale.idempotency_key, "sale-key-snapshots-and-payment");
+  assert.equal(sale.status, "completed");
+
+  // Check payment record
+  assert.ok(payment);
+  if (payment) {
+    assert.ok(payment.payment_id);
+    assert.equal(payment.sale_id, sale.sale_id);
+    assert.equal(payment.payment_type, "sale");
+    assert.equal(payment.payment_method, "cash");
+    assert.equal(payment.amount, 46000);
+    assert.equal(payment.payment_status, "completed");
+  }
+});
+
+test("Sale Validation: strictly enforces cash-only payment method in Phase 7", () => {
+  // Cash payment is accepted
+  const cashRes = validateSaleCreate({
+    idempotency_key: "cash-valid-key",
+    items: [{ product_id: "prod-1", quantity: 1 }],
+    payment_method: "cash",
+  });
+  assert.equal(cashRes.success, true);
+
+  // Credit payment method rejected in Phase 7 (deferred to Phase 8)
+  const creditRes = validateSaleCreate({
+    idempotency_key: "credit-invalid-key",
+    items: [{ product_id: "prod-1", quantity: 1 }],
+    payment_method: "credit",
+  });
+  assert.equal(creditRes.success, false);
+  if (!creditRes.success) {
+    assert.ok(creditRes.errors.some((e) => e.field === "payment_method"));
+    assert.ok(creditRes.errors.some((e) => e.message.includes("cash")));
+  }
+
+  // Other payment method rejected
+  const otherRes = validateSaleCreate({
+    idempotency_key: "other-invalid-key",
+    items: [{ product_id: "prod-1", quantity: 1 }],
+    payment_method: "esewa",
+  });
+  assert.equal(otherRes.success, false);
+});
+

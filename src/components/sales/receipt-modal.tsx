@@ -87,6 +87,12 @@ export function ReceiptModal({
                 <span className="receipt-meta-label">{t("paymentMethod")}:</span>
                 <span className="receipt-meta-val capitalize">{t("paymentCash")}</span>
               </div>
+              <div className="receipt-meta-row">
+                <span className="receipt-meta-label">Status:</span>
+                <span className="receipt-meta-val text-emerald-700 font-bold uppercase text-xs">
+                  {sale.status === "completed" ? t("statusCompleted") : sale.status}
+                </span>
+              </div>
             </div>
 
             <div className="receipt-divider-dashed" />
@@ -104,7 +110,15 @@ export function ReceiptModal({
               <tbody>
                 {items.map((it) => (
                   <tr key={it.sale_item_id}>
-                    <td className="receipt-item-name">{it.product_name_snapshot}</td>
+                    <td className="receipt-item-name">
+                      <div>{it.product_name_snapshot}</div>
+                      {(it.sku_snapshot || it.unit_snapshot) && (
+                        <div className="receipt-item-meta text-xs text-muted">
+                          {it.sku_snapshot && <span className="font-mono">{it.sku_snapshot} </span>}
+                          {it.unit_snapshot && <span>({it.unit_snapshot})</span>}
+                        </div>
+                      )}
+                    </td>
                     <td className="text-center">{it.quantity}</td>
                     <td className="text-right">{formatPaisa(it.unit_price_snapshot, locale)}</td>
                     <td className="text-right font-medium">{formatPaisa(it.line_total, locale)}</td>

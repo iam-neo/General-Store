@@ -64,6 +64,8 @@ var Config = (function () {
         "discount_amount",
         "total_amount",
         "status",
+        "payment_method",
+        "idempotency_key",
         "created_at",
         "updated_at"
       ]
@@ -75,6 +77,8 @@ var Config = (function () {
         "sale_id",
         "product_id",
         "product_name_snapshot",
+        "sku_snapshot",
+        "unit_snapshot",
         "quantity",
         "unit_price_snapshot",
         "line_total"

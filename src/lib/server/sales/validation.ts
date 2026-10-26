@@ -104,10 +104,15 @@ export function validateSaleCreate(input: unknown): ValidationResult<SaleCreateI
       ? payload.customer_id.trim()
       : null;
 
-  // 5. Payment Method
-  let paymentMethod: "cash" | "credit" | "other" = "cash";
-  if (payload.payment_method === "credit" || payload.payment_method === "other") {
-    paymentMethod = payload.payment_method;
+  // 5. Payment Method (Cash only for Phase 7)
+  const paymentMethod = "cash" as const;
+  if (payload.payment_method !== undefined && payload.payment_method !== null && payload.payment_method !== "") {
+    if (payload.payment_method !== "cash") {
+      errors.push({
+        field: "payment_method",
+        message: "Only cash sales are supported in Phase 7.",
+      });
+    }
   }
 
   // 6. Actor

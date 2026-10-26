@@ -6,6 +6,7 @@ import type {
   DatabaseInitResult,
   HealthCheckResult,
   InventoryAdjustmentRecord,
+  PaymentRecord,
   ProductCreateInput,
   ProductListFilter,
   ProductListResult,
@@ -43,6 +44,7 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
   private adjustments: InventoryAdjustmentRecord[] = [];
   private sales: SaleRecord[] = [];
   private saleItems: SaleItemRecord[] = [];
+  private payments: PaymentRecord[] = [];
   private idempotencyMap: Map<string, unknown> = new Map();
 
   constructor(preloadDefaultSheets: boolean = false) {
@@ -917,21 +919,8 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
         };
       }
 
-      let unitPrice = product.selling_price;
-      if (item.unit_price_snapshot !== undefined && item.unit_price_snapshot !== null) {
-        const override = Number(item.unit_price_snapshot);
-        if (isNaN(override) || !Number.isInteger(override) || override < 0) {
-          return {
-            success: false,
-            data: null,
-            error: {
-              code: "VALIDATION_ERROR",
-              message: `Item #${i + 1} price override must be a non-negative integer in Paisa.`,
-            },
-          };
-        }
-        unitPrice = override;
-      }
+      // Server-authoritative pricing: always use catalog selling_price (never trust client)
+      const unitPrice = product.selling_price;
 
       const lineTotal = Math.round(unitPrice * qty);
       subtotal += lineTotal;
@@ -965,6 +954,7 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
       discount_amount: discountAmount,
       total_amount: totalAmount,
       status: "completed",
+      payment_method: "cash",
       idempotency_key: idempKey,
       created_at: nowIso,
       updated_at: nowIso,
@@ -979,6 +969,8 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
         sale_id: saleId,
         product_id: vItem.product.product_id,
         product_name_snapshot: vItem.product.name,
+        sku_snapshot: vItem.product.sku ?? null,
+        unit_snapshot: vItem.product.unit as string,
         quantity: vItem.quantity,
         unit_price_snapshot: vItem.unitPrice,
         line_total: vItem.lineTotal,
@@ -1022,9 +1014,27 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
     this.sales.push(saleRecord);
     this.ensureSheet("Sales").rows.push({ ...saleRecord });
 
+    // Write payment record
+    const paymentId = randomUUID();
+    const paymentRecord: PaymentRecord = {
+      payment_id: paymentId,
+      sale_id: saleId,
+      customer_id: input.customer_id ?? null,
+      payment_type: "sale",
+      payment_method: "cash",
+      amount: totalAmount,
+      payment_status: "completed",
+      provider_reference: "CASH-REGISTER",
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    this.payments.push(paymentRecord);
+    this.ensureSheet("Payments").rows.push({ ...paymentRecord });
+
     const result: SaleWithItemsRecord = {
       sale: saleRecord,
       items: recordedItems,
+      payment: paymentRecord,
     };
 
     this.idempotencyMap.set(`sale:create:${idempKey}`, result);
@@ -1061,9 +1071,10 @@ export class MockAppsScriptClient implements AppsScriptBackendClient {
     }
 
     const items = this.saleItems.filter((i) => i.sale_id === saleId);
+    const payment = this.payments.find((p) => p.sale_id === saleId) ?? null;
     return {
       success: true,
-      data: { sale, items },
+      data: { sale, items, payment },
       error: null,
     };
   }

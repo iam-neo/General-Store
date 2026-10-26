@@ -162,25 +162,27 @@
 
 ## Phase 7: Point of Sale (POS), Sales Checkout & Inventory Deduction
 
-- **Objective**: Deliver retail register POS interface, checkout flow with gross subtotal, editable discount, and change due calculation, recording into `Sales` and `SaleItems` sheets, atomic inventory decrement with `InventoryAdjustments` audit trail, and printable thermal receipt with dual Gregorian (AD) and Bikram Sambat (BS) dates.
+- **Objective**: Deliver retail register POS interface, checkout flow with gross subtotal, editable discount, and change due calculation, recording into `Sales` and `SaleItems` sheets, atomic inventory decrement with `InventoryAdjustments` audit trail, payment record generation in `Payments`, server-authoritative catalog pricing, and printable thermal receipt with dual Gregorian (AD) and Bikram Sambat (BS) dates.
 - **Main Changes & Files Affected**:
-  - `apps-script/src/Handlers.js`: Implemented `handleSaleCreate`, `handleSaleGet`, `handleSalesList`, receipt numbering (`REC-YYYYMMDD-XXXX`), Bikram Sambat date conversion (`gregorianToBikramSambatGAS`), and stock decrementing under lock mutex.
+  - `apps-script/src/Handlers.js`: Implemented `handleSaleCreate`, `handleSaleGet`, `handleSalesList`, receipt numbering (`REC-YYYYMMDD-XXXX`), Bikram Sambat date conversion (`gregorianToBikramSambatGAS`), server-authoritative catalog pricing (client price overrides strictly ignored), `sku_snapshot` and `unit_snapshot` recording, `Payments` sheet cash record append, audit-first `pending -> completed` status transition, and lock mutex concurrency.
+  - `apps-script/src/Config.js`: Added `payment_method` and `idempotency_key` to `Sales` schema headers, and `sku_snapshot` and `unit_snapshot` to `SaleItems` schema headers.
   - `apps-script/src/Code.js`: Added action dispatching for `sale_create`, `sale_get`, and `sales_list`.
-  - `src/lib/server/apps-script/types.ts`: Defined `SaleRecord`, `SaleItemRecord`, `SaleWithItemsRecord`, `SaleCreateInput`, and `SaleListFilter`.
-  - `src/lib/server/apps-script/mock-client.ts`: Implemented `createSale`, `getSale`, and `listSales` with stock deduction, audit ledger recording, and idempotency cache.
+  - `src/lib/server/apps-script/types.ts`: Defined `SaleRecord`, `SaleItemRecord`, `SaleWithItemsRecord`, `SaleCreateInput`, `PaymentRecord`, and `SaleListFilter`.
+  - `src/lib/server/apps-script/schema.ts`: Added schema definitions for `Sales` payment_method/idempotency_key and `SaleItems` sku_snapshot/unit_snapshot.
+  - `src/lib/server/apps-script/mock-client.ts`: Synchronized `createSale`, `getSale`, and `listSales` with server-authoritative pricing, snapshot recording, `Payments` record storage, and idempotency cache.
   - `src/lib/server/apps-script/client.ts`: Implemented `createSale`, `getSale`, and `listSales` dispatch methods.
-  - `src/lib/server/sales/validation.ts`: Input validation for sale submission and line item parameters.
+  - `src/lib/server/sales/validation.ts`: Enforced strict cash-only payment validation for Phase 7 (rejecting deferred credit/esewa methods until Phase 8).
   - `src/app/api/sales/route.ts`: Protected endpoint with `verifyApiOwnerSession` and `isSameOriginRequest` for sale creation and listing.
-  - `src/app/api/sales/[id]/route.ts`: Endpoint for fetching sale by UUID.
-  - `src/components/sales/pos-register.tsx`: Interactive POS register with barcode/SKU lookup, category filtering, cart editor, discount in Paisa, cash tender / change calculator, and error alerts.
-  - `src/components/sales/receipt-modal.tsx`: Printable thermal receipt modal with dual dates, items table, Paisa formatting, and `@media print` styling.
+  - `src/app/api/sales/[id]/route.ts`: Endpoint for fetching sale by UUID with items and payment.
+  - `src/components/sales/pos-register.tsx`: Interactive POS register with barcode/SKU lookup, category filtering, cart editor, discount in Paisa, cash tender / change calculator, cash-only notice badge, checkout confirmation modal, and tabbed recent sales history table.
+  - `src/components/sales/receipt-modal.tsx`: Printable thermal receipt modal with dual dates, SKU/unit snapshot breakdown, Paisa formatting, status badge, and `@media print` styling.
   - `src/app/(dashboard)/dashboard/sales/page.tsx`: Mounted `PosRegister`.
   - `src/components/ui/icon.tsx`: Added `printer` icon for receipt printing.
-  - `src/lib/i18n/messages.ts`: Added bilingual POS and receipt dictionary translations for English (`en`) and Nepali (`ne`).
-  - `src/app/globals.css`: Added responsive styles for POS register and thermal receipt.
-  - `tests/sales-and-billing.test.ts`: Added 10 tests covering sale validation, calendar conversion, stock decrement, insufficient stock rejection, fractional unit constraints, idempotency deduplication, retrieval/listing, and API route security.
+  - `src/lib/i18n/messages.ts`: Added bilingual POS register, receipt, checkout confirmation, and sales history dictionary translations for English (`en`) and Nepali (`ne`).
+  - `src/app/globals.css`: Added responsive styles for POS register, tabs, cash badge, history card, and thermal receipt.
+  - `tests/sales-and-billing.test.ts`: Added 13 tests covering sale validation, calendar conversion, stock decrement, insufficient stock rejection, fractional unit constraints, idempotency deduplication, server-authoritative pricing, SKU/unit snapshots, cash payment ledger records, cash-only method enforcement, retrieval/listing, and API route security.
 - **Verification Commands Executed**:
-  - `npm test`: **PASS (95/95 tests passed, 0 failures, 0 skipped)**
+  - `npm test`: **PASS (98/98 tests passed, 0 failures, 0 skipped)**
   - `npx tsc --noEmit`: **PASS (0 errors)**
   - `npm run lint`: **PASS (0 warnings)**
   - `npm run build`: **PASS (23/23 static pages & routes generated)**

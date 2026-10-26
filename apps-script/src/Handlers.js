@@ -651,7 +651,8 @@ var Handlers = (function () {
       discount_amount: Number(rec.discount_amount) || 0,
       total_amount: Number(rec.total_amount) || 0,
       status: String(rec.status || "completed"),
-      idempotency_key: rec.idempotency_key ? String(rec.idempotency_key) : null,
+      payment_method: String(rec.payment_method || "cash"),
+      idempotency_key: String(rec.idempotency_key || ""),
       created_at: String(rec.created_at || ""),
       updated_at: String(rec.updated_at || "")
     };
@@ -663,9 +664,26 @@ var Handlers = (function () {
       sale_id: String(rec.sale_id || ""),
       product_id: String(rec.product_id || ""),
       product_name_snapshot: String(rec.product_name_snapshot || ""),
+      sku_snapshot: rec.sku_snapshot ? String(rec.sku_snapshot) : null,
+      unit_snapshot: String(rec.unit_snapshot || "piece"),
       quantity: Number(rec.quantity) || 0,
       unit_price_snapshot: Number(rec.unit_price_snapshot) || 0,
       line_total: Number(rec.line_total) || 0
+    };
+  }
+
+  function normalizePayment(rec) {
+    return {
+      payment_id: String(rec.payment_id || ""),
+      sale_id: rec.sale_id ? String(rec.sale_id) : null,
+      customer_id: rec.customer_id ? String(rec.customer_id) : null,
+      payment_type: String(rec.payment_type || "sale"),
+      payment_method: String(rec.payment_method || "cash"),
+      amount: Number(rec.amount) || 0,
+      payment_status: String(rec.payment_status || "completed"),
+      provider_reference: rec.provider_reference ? String(rec.provider_reference) : null,
+      created_at: String(rec.created_at || ""),
+      updated_at: String(rec.updated_at || "")
     };
   }
 
@@ -731,6 +749,11 @@ var Handlers = (function () {
       Schema.initializeDatabase(ss);
       saleItemsSheet = ss.getSheetByName("SaleItems");
     }
+    var paymentsSheet = ss.getSheetByName("Payments");
+    if (!paymentsSheet) {
+      Schema.initializeDatabase(ss);
+      paymentsSheet = ss.getSheetByName("Payments");
+    }
     var prodSheet = ss.getSheetByName("Products");
     if (!prodSheet) {
       throw { code: "RECORD_NOT_FOUND", message: "Products sheet not found." };
@@ -743,23 +766,115 @@ var Handlers = (function () {
 
     return Database.withLock(15000, function () {
       // 1. Idempotency check on Sales sheet
-      var existingSale = Database.findRecordByField(salesSheet, "receipt_number", "");
-      // Check by idempotency_key — scan all sales for matching key
       var allSaleRecords = Database.getAllRecords(salesSheet);
+      var foundExistingIndex = -1;
+      var existingSaleRow = null;
       for (var ec = 0; ec < allSaleRecords.length; ec++) {
         var existingKey = String(allSaleRecords[ec].record.idempotency_key || "").trim();
         if (existingKey && existingKey === idempKey) {
-          // Return the cached sale with its items
-          var cachedSale = normalizeSale(allSaleRecords[ec].record);
-          var cachedItems = [];
-          var allSaleItems = Database.getAllRecords(saleItemsSheet);
-          for (var ci = 0; ci < allSaleItems.length; ci++) {
-            if (String(allSaleItems[ci].record.sale_id) === cachedSale.sale_id) {
-              cachedItems.push(normalizeSaleItem(allSaleItems[ci].record));
+          foundExistingIndex = allSaleRecords[ec].rowIndex;
+          existingSaleRow = allSaleRecords[ec].record;
+          break;
+        }
+      }
+
+      if (existingSaleRow) {
+        var cachedSale = normalizeSale(existingSaleRow);
+        var cachedItems = [];
+        var allSaleItems = Database.getAllRecords(saleItemsSheet);
+        for (var ci = 0; ci < allSaleItems.length; ci++) {
+          if (String(allSaleItems[ci].record.sale_id) === cachedSale.sale_id) {
+            cachedItems.push(normalizeSaleItem(allSaleItems[ci].record));
+          }
+        }
+
+        var cachedPayment = null;
+        if (paymentsSheet) {
+          var allPayments = Database.getAllRecords(paymentsSheet);
+          for (var pi = 0; pi < allPayments.length; pi++) {
+            if (String(allPayments[pi].record.sale_id) === cachedSale.sale_id) {
+              cachedPayment = normalizePayment(allPayments[pi].record);
+              break;
             }
           }
-          return { sale: cachedSale, items: cachedItems };
         }
+
+        // Partial failure self-healing: if sale was pending, reconcile inventory deductions and payment
+        if (cachedSale.status === "pending") {
+          var allAdjs = Database.getAllRecords(adjSheet);
+          var processedAdjKeys = {};
+          for (var ai = 0; ai < allAdjs.length; ai++) {
+            var adjK = String(allAdjs[ai].record.idempotency_key || "");
+            if (adjK) processedAdjKeys[adjK] = true;
+          }
+
+          var prodRows = Database.getAllRecords(prodSheet);
+          var prodMap = {};
+          for (var pr = 0; pr < prodRows.length; pr++) {
+            prodMap[String(prodRows[pr].record.product_id)] = prodRows[pr];
+          }
+
+          for (var ci2 = 0; ci2 < cachedItems.length; ci2++) {
+            var cItem = cachedItems[ci2];
+            var itemAdjKey = idempKey + ":" + cItem.product_id;
+            if (!processedAdjKeys[itemAdjKey]) {
+              var prodEntry = prodMap[cItem.product_id];
+              if (prodEntry) {
+                var pStock = Number(prodEntry.record.stock_quantity) || 0;
+                var nStock = pStock - cItem.quantity;
+                var aHeaders = Config.SCHEMA.find(function (s) { return s.name === "InventoryAdjustments"; }).headers;
+                Database.appendRecord(adjSheet, {
+                  adjustment_id: Database.generateUuid(),
+                  product_id: cItem.product_id,
+                  adjustment_type: "decrease",
+                  quantity_change: -cItem.quantity,
+                  previous_stock: pStock,
+                  new_stock: nStock,
+                  reason: "Sale " + cachedSale.receipt_number,
+                  notes: "Partial failure reconciliation",
+                  actor: actor,
+                  idempotency_key: itemAdjKey,
+                  created_at: new Date().toISOString()
+                }, aHeaders);
+
+                Database.updateRecord(prodSheet, prodEntry.rowIndex, {
+                  stock_quantity: nStock,
+                  updated_at: new Date().toISOString()
+                });
+              }
+            }
+          }
+
+          if (!cachedPayment && paymentsSheet) {
+            var payHeaders = Config.SCHEMA.find(function (s) { return s.name === "Payments"; }).headers;
+            var newPayRec = {
+              payment_id: Database.generateUuid(),
+              sale_id: cachedSale.sale_id,
+              customer_id: cachedSale.customer_id || "",
+              payment_type: "sale",
+              payment_method: "cash",
+              amount: cachedSale.total_amount,
+              payment_status: "completed",
+              provider_reference: "CASH-REGISTER",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            Database.appendRecord(paymentsSheet, newPayRec, payHeaders);
+            cachedPayment = normalizePayment(newPayRec);
+          }
+
+          Database.updateRecord(salesSheet, foundExistingIndex, {
+            status: "completed",
+            updated_at: new Date().toISOString()
+          });
+          cachedSale.status = "completed";
+        }
+
+        return {
+          sale: cachedSale,
+          items: cachedItems,
+          payment: cachedPayment
+        };
       }
 
       // 2. Fetch and validate all products referenced in items
@@ -819,15 +934,8 @@ var Handlers = (function () {
           };
         }
 
-        // Unit price: use override if provided, otherwise product selling_price
+        // Server-authoritative unit price: strictly catalog selling_price (never trust client)
         var unitPrice = Number(productRec.selling_price) || 0;
-        if (item.unit_price_snapshot !== undefined && item.unit_price_snapshot !== null && item.unit_price_snapshot !== "") {
-          var overridePrice = Number(item.unit_price_snapshot);
-          if (isNaN(overridePrice) || !Number.isInteger(overridePrice) || overridePrice < 0) {
-            throw { code: "VALIDATION_ERROR", message: "Item #" + (it + 1) + " price override must be a non-negative integer in Paisa." };
-          }
-          unitPrice = overridePrice;
-        }
 
         // Compute line total in integer Paisa
         var lineTotal = Math.round(unitPrice * qty);
@@ -835,11 +943,12 @@ var Handlers = (function () {
         validatedItems.push({
           product_id: productId,
           product_name: String(productRec.name || ""),
+          sku: productRec.sku ? String(productRec.sku).trim() : "",
+          unit: unit,
           quantity: qty,
           unit_price: unitPrice,
           line_total: lineTotal,
-          product_entry: productEntry,
-          unit: unit
+          product_entry: productEntry
         });
 
         subtotal += lineTotal;
@@ -861,13 +970,10 @@ var Handlers = (function () {
       if (day.length < 2) day = "0" + day;
       var transactionDate = y + "-" + mon + "-" + day;
 
-      // Bikram Sambat date — server-side simplified conversion
-      // For Apps Script, we compute BS using the same algorithm as the TypeScript implementation
       var transactionDateBs = gregorianToBikramSambatGAS(now);
-
       var receiptNumber = generateReceiptNumber(salesSheet, transactionDate);
 
-      // 5. Write sale header
+      // 5. Write sale header initially in "pending" status (audit-first durability)
       var salesHeaders = Config.SCHEMA.find(function (s) { return s.name === "Sales"; }).headers;
       var saleRecord = {
         sale_id: saleId,
@@ -878,11 +984,23 @@ var Handlers = (function () {
         subtotal: subtotal,
         discount_amount: discountAmount,
         total_amount: totalAmount,
-        status: "completed",
+        status: "pending",
+        payment_method: "cash",
+        idempotency_key: idempKey,
         created_at: nowIso,
         updated_at: nowIso
       };
       Database.appendRecord(salesSheet, saleRecord, salesHeaders);
+
+      // Get the row index of the newly inserted sale for later status transition
+      var allSalesAfterInsert = Database.getAllRecords(salesSheet);
+      var newSaleRowIndex = -1;
+      for (var si = allSalesAfterInsert.length - 1; si >= 0; si--) {
+        if (allSalesAfterInsert[si].record.sale_id === saleId) {
+          newSaleRowIndex = allSalesAfterInsert[si].rowIndex;
+          break;
+        }
+      }
 
       // 6. Write line items and deduct stock
       var saleItemHeaders = Config.SCHEMA.find(function (s) { return s.name === "SaleItems"; }).headers;
@@ -898,6 +1016,8 @@ var Handlers = (function () {
           sale_id: saleId,
           product_id: vItem.product_id,
           product_name_snapshot: vItem.product_name,
+          sku_snapshot: vItem.sku,
+          unit_snapshot: vItem.unit,
           quantity: vItem.quantity,
           unit_price_snapshot: vItem.unit_price,
           line_total: vItem.line_total
@@ -909,7 +1029,7 @@ var Handlers = (function () {
         var prevStock = Number(vItem.product_entry.record.stock_quantity) || 0;
         var newStock = prevStock - vItem.quantity;
 
-        // Write audit record FIRST (safer order)
+        // Write audit record FIRST
         var adjId = Database.generateUuid();
         var adjRecord = {
           adjustment_id: adjId,
@@ -933,23 +1053,36 @@ var Handlers = (function () {
         });
       }
 
-      // 7. Add idempotency_key to the sale record for future dedup (already in sheet via saleRecord)
-      // The key is stored as part of the Sales sheet — we do an extra column update
-      // (idempotency_key is NOT in the Sales schema headers, so we store it differently)
-      // Actually, we need to add idempotency_key tracking. We'll use a convention:
-      // Store it by scanning existing sales (already handled above).
-      // We rely on the receipt_number + date being unique, and the idempotency check at the top.
-      // For robustness, we should ensure the Sales sheet can store idempotency_key.
-      // Since Sales schema doesn't have idempotency_key column, we'll check by scanning receipt_number prefix + items.
-      // The idempotency check above scans for matching idempotency_key — but Sales schema needs the column.
-      // Let's write the idempotency_key into a convention: we've already done the scan above,
-      // and we put the key into the saleRecord if the column exists in headers.
-      // The current Sales headers don't include idempotency_key — it's tracked on the SaleRecord type
-      // but was optional. We've handled idempotency via the scan at the top.
+      // 7. Write payment record to Payments sheet
+      var paymentHeaders = Config.SCHEMA.find(function (s) { return s.name === "Payments"; }).headers;
+      var paymentId = Database.generateUuid();
+      var paymentRecord = {
+        payment_id: paymentId,
+        sale_id: saleId,
+        customer_id: customerId || "",
+        payment_type: "sale",
+        payment_method: "cash",
+        amount: totalAmount,
+        payment_status: "completed",
+        provider_reference: "CASH-REGISTER",
+        created_at: nowIso,
+        updated_at: nowIso
+      };
+      Database.appendRecord(paymentsSheet, paymentRecord, paymentHeaders);
+
+      // 8. Transition sale status to completed
+      if (newSaleRowIndex !== -1) {
+        Database.updateRecord(salesSheet, newSaleRowIndex, {
+          status: "completed",
+          updated_at: new Date().toISOString()
+        });
+      }
+      saleRecord.status = "completed";
 
       return {
         sale: normalizeSale(saleRecord),
-        items: normalizedItems
+        items: normalizedItems,
+        payment: normalizePayment(paymentRecord)
       };
     });
   }

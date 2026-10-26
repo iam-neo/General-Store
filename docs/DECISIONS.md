@@ -121,11 +121,14 @@
 - **Status:** **FINAL**
 - **Decision:** POS register checkout (`POST /api/sales`) executes as an atomic compound mutation:
   1. Validates available stock and unit precision for all items.
-  2. Generates a human-readable sequence receipt number (`REC-YYYYMMDD-XXXX`).
-  3. Captures dual calendar dates (Gregorian ISO and Bikram Sambat BS).
-  4. Snapshots product name and unit selling price into `SaleItems` to guarantee financial ledger integrity when catalog prices change in the future.
-  5. Atomically writes audit records to `InventoryAdjustments` (`reason: "Sale REC-..."`) and decrements product inventory.
-  6. Enforces client-provided `idempotency_key` so network timeouts or re-submissions return the cached sale without duplicate stock deductions.
-- **Why Chosen:** Prevents stock desynchronization and ensures thermal receipts and sales tax records remain historically unalterable regardless of subsequent product edits or price inflation.
-- **Constraints:** Sale items must not exceed on-hand stock quantities at time of checkout.
+  2. Enforces **server-authoritative pricing**: catalog `selling_price` is strictly resolved on the server; client-supplied price overrides are rejected/ignored to prevent manipulation.
+  3. Generates a human-readable sequence receipt number (`REC-YYYYMMDD-XXXX`).
+  4. Captures dual calendar dates (Gregorian ISO and Bikram Sambat BS).
+  5. Snapshots product name, barcode/SKU (`sku_snapshot`), and unit (`unit_snapshot`) alongside unit price into `SaleItems` to guarantee financial ledger integrity when catalog prices or units change in the future.
+  6. Atomically writes audit records to `InventoryAdjustments` (`reason: "Sale REC-..."`) and decrements product inventory.
+  7. Appends a cash receipt to `Payments` sheet (`payment_type: "sale"`, `payment_method: "cash"`, `payment_status: "completed"`).
+  8. Transitions sale status from `pending` to `completed` once all children sheets are written.
+  9. Enforces client-provided `idempotency_key` so network timeouts or re-submissions return the cached sale without duplicate stock deductions.
+- **Why Chosen:** Prevents stock desynchronization and ensures thermal receipts, payments ledger, and sales records remain historically unalterable regardless of subsequent product edits or price inflation.
+- **Constraints:** Sale items must not exceed on-hand stock quantities at time of checkout. Only cash payments are allowed in Phase 7 (credit/Udhaar deferred to Phase 8).
 - **Consequences & Limitations:** Google Sheets does not support multi-sheet ACID rollbacks; ordering writes audit-first and caching idempotency keys ensures self-healing consistency across client retries.

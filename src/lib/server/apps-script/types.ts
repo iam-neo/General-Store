@@ -197,6 +197,19 @@ export type ApiErrorCode =
   | "TEST_WRITE_DISABLED"
   | "INTERNAL_ERROR";
 
+export type PaymentRecord = Readonly<{
+  payment_id: string;
+  sale_id?: string | null;
+  customer_id?: string | null;
+  payment_type: "sale" | "credit_repayment" | "refund";
+  payment_method: "cash" | "esewa" | "credit";
+  amount: number; // integer paisa
+  payment_status: "pending" | "completed" | "failed" | "refunded";
+  provider_reference?: string | null;
+  created_at: string;
+  updated_at: string;
+}>;
+
 export type SaleRecord = Readonly<{
   sale_id: string;
   receipt_number: string;
@@ -206,8 +219,9 @@ export type SaleRecord = Readonly<{
   subtotal: number; // integer paisa
   discount_amount: number; // integer paisa
   total_amount: number; // integer paisa
-  status: "draft" | "completed" | "cancelled" | "refunded";
-  idempotency_key?: string | null;
+  status: "draft" | "completed" | "cancelled" | "refunded" | "pending" | "failed";
+  payment_method: "cash" | "credit" | "other";
+  idempotency_key: string;
   created_at: string;
   updated_at: string;
 }>;
@@ -217,6 +231,8 @@ export type SaleItemRecord = Readonly<{
   sale_id: string;
   product_id: string;
   product_name_snapshot: string;
+  sku_snapshot?: string | null;
+  unit_snapshot: string;
   quantity: number;
   unit_price_snapshot: number; // integer paisa
   line_total: number; // integer paisa
@@ -225,12 +241,13 @@ export type SaleItemRecord = Readonly<{
 export type SaleWithItemsRecord = Readonly<{
   sale: SaleRecord;
   items: readonly SaleItemRecord[];
+  payment?: PaymentRecord | null;
 }>;
 
 export type SaleCreateItemInput = Readonly<{
   product_id: string;
   quantity: number;
-  unit_price_snapshot?: number | null; // integer paisa override if any
+  unit_price_snapshot?: number | null; // Optional; server enforces catalog selling_price
 }>;
 
 export type SaleCreateInput = Readonly<{
