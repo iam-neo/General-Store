@@ -7,9 +7,12 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "auth:hash": "node scripts/generate-password-hash.mjs"
   },
   "dependencies": {
+    "@upstash/redis": "^1.39.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"
@@ -23,6 +26,7 @@
     "eslint-config-next": "16.4.3",
     "postcss": "^8.5.31",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

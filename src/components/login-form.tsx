@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { LanguageToggle } from "@/components/language-toggle";
 import { Icon } from "@/components/ui/icon";
@@ -8,22 +8,63 @@ import { useLocale } from "@/lib/i18n/locale-provider";
 
 export function LoginForm() {
   const { t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromPath = searchParams.get("from") || "/dashboard";
+
   const [username, setUsername] = useState("owner");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasAttemptedSubmit(true);
+    setFeedback("");
 
     if (!username.trim() || !password) {
       setFeedback(t("requiredFieldsMessage"));
       return;
     }
 
-    setFeedback(t("authNotConnected"));
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (response.ok && result?.success) {
+        const destination = fromPath.startsWith("/") ? fromPath : "/dashboard";
+        router.push(destination);
+        router.refresh();
+        return;
+      }
+
+      if (response.status === 429) {
+        setFeedback(t("rateLimited"));
+      } else if (response.status === 503 || result?.error?.code === "AUTH_NOT_CONFIGURED") {
+        setFeedback(t("authNotConfigured"));
+      } else {
+        setFeedback(t("invalidCredentials"));
+      }
+    } catch {
+      setFeedback(t("invalidCredentials"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   const usernameInvalid = hasAttemptedSubmit && !username.trim();
@@ -31,16 +72,22 @@ export function LoginForm() {
 
   return (
     <main className="login-page min-h-screen bg-background px-4 py-8 text-foreground">
-      <div className="login-language"><LanguageToggle /></div>
+      <div className="login-language">
+        <LanguageToggle />
+      </div>
       <section aria-labelledby="login-title" className="login-card">
-        <div aria-hidden="true" className="login-brand-icon"><Icon name="store" size={24} /></div>
+        <div aria-hidden="true" className="login-brand-icon">
+          <Icon name="store" size={24} />
+        </div>
         <p className="login-product-name">{t("appName")}</p>
-        <h1 className="login-title" id="login-title">{t("loginWelcome")}</h1>
+        <h1 className="login-title" id="login-title">
+          {t("loginWelcome")}
+        </h1>
         <p className="login-subtitle">{t("loginSubtitle")}</p>
 
         <div className="login-demo-notice" role="note">
-          <strong>{t("demoData")}</strong>
-          <span>{t("loginDemoNotice")}</span>
+          <strong>{t("owner")}</strong>
+          <span>{t("ownerUsernameSuggestion")}</span>
         </div>
 
         <form className="login-form" noValidate onSubmit={handleSubmit}>
@@ -50,6 +97,7 @@ export function LoginForm() {
               aria-describedby={usernameInvalid ? "login-feedback" : undefined}
               aria-invalid={usernameInvalid}
               autoComplete="username"
+              disabled={loading}
               id="username"
               name="username"
               onChange={(event) => setUsername(event.target.value)}
@@ -66,6 +114,7 @@ export function LoginForm() {
                 aria-describedby={passwordInvalid ? "login-feedback" : undefined}
                 aria-invalid={passwordInvalid}
                 autoComplete="current-password"
+                disabled={loading}
                 id="password"
                 name="password"
                 onChange={(event) => setPassword(event.target.value)}
@@ -78,6 +127,7 @@ export function LoginForm() {
                 aria-label={passwordVisible ? t("hidePassword") : t("showPassword")}
                 aria-pressed={passwordVisible}
                 className="password-visibility"
+                disabled={loading}
                 onClick={() => setPasswordVisible((visible) => !visible)}
                 type="button"
               >
@@ -86,18 +136,22 @@ export function LoginForm() {
             </div>
           </div>
 
-          {feedback ? <p aria-live="polite" className="login-feedback" id="login-feedback" role="alert">{feedback}</p> : null}
-          <button className="primary-button login-button" type="submit">{t("signIn")}</button>
+          {feedback ? (
+            <p aria-live="polite" className="login-feedback" id="login-feedback" role="alert">
+              {feedback}
+            </p>
+          ) : null}
+
+          <button className="primary-button login-button" disabled={loading} type="submit">
+            {loading ? t("signingIn") : t("signIn")}
+          </button>
         </form>
 
         <div className="login-card-footer">
-          <Link className="demo-link" href="/dashboard">
-            {t("dashboardDemoLink")} <Icon name="arrow" size={15} />
-          </Link>
           <p>{t("loginFooter")}</p>
         </div>
       </section>
-      <p className="login-disclaimer">{t("demoRouteNotice")}</p>
+      <p className="login-disclaimer">{t("loginSecureNotice")}</p>
     </main>
   );
 }
